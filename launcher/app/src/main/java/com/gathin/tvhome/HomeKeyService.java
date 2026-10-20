@@ -2,12 +2,8 @@ package com.gathin.tvhome;
 
 import android.accessibilityservice.AccessibilityService;
 import android.content.Intent;
-import android.provider.Settings;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityEvent;
-
-import java.util.Collections;
-import java.util.Map;
 
 /**
  * Sends the remote's Home button to this launcher on remotes that emit KEYCODE_ALL_APPS for Home
@@ -20,47 +16,8 @@ import java.util.Map;
  */
 public class HomeKeyService extends AccessibilityService {
 
-    /** Remote buttons that should open Settings (config.xml, settings_key_scancodes and settings_key_keycodes). */
-    private int[] settingsScancodes = new int[0];
-    private int[] settingsKeycodes = new int[0];
-    private boolean settingsPanel;
-    /** app_keys, the same map InputKeyService reads, for setups that run only this service. */
-    private Map<Integer, String> appKeys = Collections.emptyMap();
-
-    @Override
-    protected void onServiceConnected() {
-        super.onServiceConnected();
-        settingsScancodes = getResources().getIntArray(R.array.settings_key_scancodes);
-        // Keycodes and the panel choice can also come from a theme; theme.sh restarts this service.
-        Config config = Config.load(this);
-        settingsKeycodes = config.settingsKeycodes;
-        settingsPanel = config.settingsKeyPanel;
-        appKeys = RemoteKeys.parseAppKeys(config.appKeys);
-    }
-
-    private boolean isSettingsKey(KeyEvent event) {
-        if (event.getKeyCode() == KeyEvent.KEYCODE_SETTINGS) return true;
-        for (int code : settingsScancodes) if (event.getScanCode() == code) return true;
-        for (int code : settingsKeycodes) if (event.getKeyCode() == code) return true;
-        return false;
-    }
-
     @Override
     protected boolean onKeyEvent(KeyEvent event) {
-        // The stock launcher handled the remote's Settings button; with it disabled the button does nothing.
-        if (isSettingsKey(event)) {
-            if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
-                Intent open = settingsPanel ? new Intent(this, QuickSettingsActivity.class)
-                        : new Intent(Settings.ACTION_SETTINGS);
-                startActivity(open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            }
-            return true;
-        }
-        String app = appKeys.get(event.getKeyCode());
-        if (app != null) {
-            if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) RemoteKeys.launch(this, app);
-            return true;
-        }
         if (event.getKeyCode() != KeyEvent.KEYCODE_ALL_APPS) return false;
         if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
             Intent home = new Intent(Intent.ACTION_MAIN)

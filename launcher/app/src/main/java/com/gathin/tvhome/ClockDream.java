@@ -1,38 +1,96 @@
 package com.gathin.tvhome;
 
 import android.animation.ArgbEvaluator;
+import android.animation.ObjectAnimator;
+import android.animation.PropertyValuesHolder;
 import android.animation.ValueAnimator;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.service.dreams.DreamService;
+import android.util.Log;
 import android.view.View;
+import android.view.animation.LinearInterpolator;
+import android.widget.ImageView;
+import android.widget.TextView;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Screensaver: the launcher's thin clock and date on black, over a slow ambient glow.
- * Every minute the clock drifts to a new spot and the glow shifts colour, so nothing burns in.
- * No network, no images: cheap enough for a 1 GB TV.
+ * Four corners: clock, date and weather top left; the photo credit top right; the song playing bottom
+ * left. Every minute
+ * the clock also shifts a few pixels and the glow changes colour, so nothing burns in.
+ * With dream_photos on, Bing's photos of the day replace the glow, a new one every few minutes with a
+ * slow zoom; they are kept in the cache directory, so the screensaver still has photos offline.
+ * The weather line uses the home screen's weather settings. Network work runs on one background thread.
+ * With now_playing on, the song a music app is playing shows in the top left corner (NowPlaying).
  */
 public class ClockDream extends DreamService {
+    private static final String TAG = "TvHome.Dream";
 
     private static final long MOVE_MS = 60_000L;
+    /** A new photo every this many clock moves. */
+    private static final int PHOTO_EVERY = 3;
+    private static final long WEATHER_MS = 30 * MOVE_MS;
     /** Deep, low-brightness glow colours; the glow is drawn at partial alpha on black. */
     private static final int[] PALETTE = {0xFF2B5CFF, 0xFF00A39A, 0xFF8A3FFC, 0xFFE0661B, 0xFFD6336C};
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Random random = new Random();
+    private final ExecutorService io = Executors.newSingleThreadExecutor();
     private View content;
+    private View ambient;
     private GradientDrawable glow;
     private int colorIndex;
     private int glowColor;
+
+    private boolean photosOn;
+    private ImageView photoA, photoB;
+    private boolean frontIsA;
+    private View scrim;
+    private TextView caption;
+    private final List<DailyPhoto.Photo> photos = new ArrayList<>();
+    private int photoIndex = -1;
+    private int ticks;
+    private ObjectAnimator zoom;
+
+    private View nowBox;
+    private ImageView nowArt;
+    private TextView nowSong, nowArtist;
+    private NowPlaying nowPlaying;
+    private String nowArtKey;
+    private boolean nowArtIsCover;
+
+    private TextView weather;
+    private String weatherUrl, weatherPlace;
+    private long weatherAt = -WEATHER_MS;
 
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
             moveClock();
             shiftGlow();
+            if (photosOn && ++ticks % PHOTO_EVERY == 0) nextPhoto();
+            updateWeather();
             handler.postDelayed(this, MOVE_MS);
         }
     };
@@ -44,9 +102,10 @@ public class ClockDream extends DreamService {
         setFullscreen(true);
         setScreenBright(false);
         setContentView(R.layout.dream_clock);
+        Config cfg = Config.load(this);
 
         content = findViewById(R.id.dreamContent);
-        View ambient = findViewById(R.id.dreamAmbient);
+        ambient = findViewById(R.id.dreamAmbient);
         glow = new GradientDrawable();
         glow.setGradientType(GradientDrawable.RADIAL_GRADIENT);
         ambient.setBackground(glow);
@@ -54,6 +113,27 @@ public class ClockDream extends DreamService {
                 glow.setGradientRadius((r - l) * 0.55f));
         colorIndex = random.nextInt(PALETTE.length);
         setGlow(PALETTE[colorIndex]);
+
+        photosOn = cfg.dreamPhotos;
+        photoA = findViewById(R.id.dreamPhotoA);
+        photoB = findViewById(R.id.dreamPhotoB);
+        scrim = findViewById(R.id.dreamScrim);
+        caption = findViewById(R.id.dreamCaption);
+        scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[] {0x99000000, 0x40000000, 0x40000000, 0xCC000000}));
+
+        nowBox = findViewById(R.id.dreamNowPlaying);
+        nowArt = findViewById(R.id.dreamArt);
+        nowSong = findViewById(R.id.dreamSong);
+        nowArtist = findViewById(R.id.dreamArtist);
+        if (cfg.nowPlaying) nowPlaying = new NowPlaying(this, handler, this::showNowPlaying);
+
+        weather = findViewById(R.id.dreamWeather);
+        weatherPlace = cfg.weatherPlace;
+        if (!cfg.weatherLatitude.isEmpty() && !cfg.weatherLongitude.isEmpty()) {
+            weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + cfg.weatherLatitude
+                    + "&longitude=" + cfg.weatherLongitude + "&current=temperature_2m,weather_code,is_day&timezone=auto";
+        }
     }
 
     @Override
@@ -64,6 +144,9 @@ public class ClockDream extends DreamService {
             placeClock();
             content.animate().alpha(1f).setDuration(1200).start();
         });
+        if (photosOn) loadPhotoList();
+        if (nowPlaying != null) nowPlaying.start();
+        updateWeather();
         handler.postDelayed(tick, MOVE_MS);
     }
 
@@ -75,30 +158,37 @@ public class ClockDream extends DreamService {
 
     @Override
     public void onDetachedFromWindow() {
-        handler.removeCallbacks(tick);
+        handler.removeCallbacksAndMessages(null);
+        io.shutdownNow();
+        if (nowPlaying != null) nowPlaying.stop();
+        if (zoom != null) zoom.cancel();
+        photoA.setImageDrawable(null);
+        photoB.setImageDrawable(null);
         super.onDetachedFromWindow();
     }
 
+    /** A slow shift of a few pixels, so the clock in its corner never burns in. */
     private void moveClock() {
-        content.animate().alpha(0f).setDuration(900).withEndAction(() -> {
-            placeClock();
-            content.animate().alpha(1f).setDuration(1200).start();
-        }).start();
+        float[] d = jitter();
+        content.animate().translationX(d[0]).translationY(d[1]).setDuration(3000).start();
     }
 
-    /** A random spot that keeps the whole clock on screen, with the glow centred behind it. */
+    /** The clock stays in the top left corner, a few pixels off its spot, with the glow centred behind it. */
     private void placeClock() {
+        float[] d = jitter();
+        content.setTranslationX(d[0]);
+        content.setTranslationY(d[1]);
         View parent = (View) content.getParent();
-        int maxX = Math.max(0, parent.getWidth() - content.getWidth());
-        int maxY = Math.max(0, parent.getHeight() - content.getHeight());
-        float x = maxX * (0.1f + 0.8f * random.nextFloat());
-        float y = maxY * (0.1f + 0.8f * random.nextFloat());
-        content.setX(x);
-        content.setY(y);
         if (parent.getWidth() > 0 && parent.getHeight() > 0) {
-            glow.setGradientCenter((x + content.getWidth() / 2f) / parent.getWidth(),
-                    (y + content.getHeight() / 2f) / parent.getHeight());
+            glow.setGradientCenter((content.getLeft() + content.getWidth() / 2f) / parent.getWidth(),
+                    (content.getTop() + content.getHeight() / 2f) / parent.getHeight());
         }
+    }
+
+    /** Up to 6 dp right and down from the corner, never towards the screen edge. */
+    private float[] jitter() {
+        float j = 6 * getResources().getDisplayMetrics().density;
+        return new float[] {random.nextFloat() * j, random.nextFloat() * j};
     }
 
     private void shiftGlow() {
@@ -114,5 +204,120 @@ public class ClockDream extends DreamService {
         glowColor = color;
         int c = color & 0x00FFFFFF;
         glow.setColors(new int[]{0x40000000 | c, 0x14000000 | c, 0x00000000 | c});
+    }
+
+    // ---- photos ---------------------------------------------------------------------------------
+
+    /** Today's list from Bing, or the last list saved when offline; then the first photo. */
+    private void loadPhotoList() {
+        io.execute(() -> {
+            List<DailyPhoto.Photo> list = DailyPhoto.list(this);
+            handler.post(() -> {
+                photos.clear();
+                photos.addAll(list);
+                nextPhoto();
+            });
+        });
+    }
+
+    private void nextPhoto() {
+        if (photos.isEmpty()) return;
+        photoIndex = (photoIndex + 1) % photos.size();
+        final DailyPhoto.Photo p = photos.get(photoIndex);
+        final int width = getResources().getDisplayMetrics().widthPixels;
+        io.execute(() -> {
+            Bitmap bmp = DailyPhoto.load(this, p, width);
+            if (bmp != null) handler.post(() -> showPhoto(bmp, p.caption()));
+        });
+    }
+
+    /** Fades the new photo in over the old one and starts a slow zoom; the glow steps aside. */
+    private void showPhoto(Bitmap bmp, String text) {
+        ImageView front = frontIsA ? photoB : photoA;
+        ImageView back = frontIsA ? photoA : photoB;
+        frontIsA = !frontIsA;
+        front.setImageBitmap(bmp);
+        front.bringToFront();
+        scrim.bringToFront();
+        caption.bringToFront();
+        content.bringToFront();
+        nowBox.bringToFront();
+        front.setAlpha(0f);
+        front.setScaleX(1f);
+        front.setScaleY(1f);
+        front.animate().alpha(1f).setDuration(2000).withEndAction(() -> {
+            back.setAlpha(0f);
+            back.setImageDrawable(null);
+        }).start();
+        if (zoom != null) zoom.cancel();
+        zoom = ObjectAnimator.ofPropertyValuesHolder(front,
+                PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.08f),
+                PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.08f));
+        zoom.setDuration(PHOTO_EVERY * MOVE_MS + 5000);
+        zoom.setInterpolator(new LinearInterpolator());
+        zoom.start();
+        scrim.animate().alpha(1f).setDuration(2000).start();
+        ambient.animate().alpha(0f).setDuration(2000).start();
+        caption.animate().alpha(0f).setDuration(600).withEndAction(() -> {
+            caption.setText(text);
+            caption.animate().alpha(1f).setDuration(1400).start();
+        }).start();
+    }
+
+    // ---- now playing ----------------------------------------------------------------------------
+
+    private void showNowPlaying(NowPlaying.Track t) {
+        if (t == null) {
+            nowBox.setVisibility(View.GONE);
+            return;
+        }
+        nowSong.setText(t.title);
+        nowArtist.setText(t.artist);
+        nowArtist.setVisibility(t.artist.isEmpty() ? View.GONE : View.VISIBLE);
+        // Keep the cover for the same song (apps send their icon for a moment on play/pause).
+        String key = t.title + '\u0000' + t.artist;
+        boolean sameSong = key.equals(nowArtKey);
+        if (t.art != null && (!sameSong || (t.artIsCover && !nowArtIsCover))) {
+            nowArt.setImageBitmap(MainActivity.roundedArt(t.art, Math.round(64 * getResources().getDisplayMetrics().density)));
+            nowArt.setVisibility(View.VISIBLE);
+            nowArtKey = key;
+            nowArtIsCover = t.artIsCover;
+        } else if (t.art == null && !sameSong) {
+            nowArt.setVisibility(View.GONE);
+            nowArtKey = key;
+            nowArtIsCover = false;
+        }
+        nowBox.setAlpha(t.playing ? 1f : 0.6f);
+        nowBox.setVisibility(View.VISIBLE);
+    }
+
+    // ---- weather --------------------------------------------------------------------------------
+
+    private void updateWeather() {
+        if (weatherUrl == null) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - weatherAt < WEATHER_MS) return;
+        weatherAt = now;
+        io.execute(() -> {
+            String text = null;
+            try {
+                JSONObject cur = new JSONObject(new String(DailyPhoto.fetch(weatherUrl), StandardCharsets.UTF_8))
+                        .getJSONObject("current");
+                text = MainActivity.weatherIcon(cur.getInt("weather_code"), cur.optInt("is_day", 1) == 1)
+                        + "  " + Math.round(cur.getDouble("temperature_2m")) + "°"
+                        + (weatherPlace.isEmpty() ? "" : "  ·  " + weatherPlace);
+            } catch (Exception e) {
+                Log.w(TAG, "weather: " + e);
+            }
+            final String result = text;
+            handler.post(() -> {
+                if (result == null) {
+                    weatherAt -= WEATHER_MS - 5 * MOVE_MS;   // offline: try again in 5 minutes
+                    return;
+                }
+                weather.setText(result);
+                weather.setVisibility(View.VISIBLE);
+            });
+        });
     }
 }

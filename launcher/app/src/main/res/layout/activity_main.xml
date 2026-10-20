@@ -5,11 +5,13 @@
     android:layout_height="match_parent"
     android:background="#FF000000">
 
-    <!-- Time-of-day backdrop, drawn once a minute (config.xml sky_intensity; 0 keeps it hidden). -->
-    <com.gathin.tvhome.SkyView
-        android:id="@+id/sky"
+    <!-- Today's photo of the day behind everything (home_photo); its scrim is baked into the bitmap. -->
+    <ImageView
+        android:id="@+id/homePhoto"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:alpha="0"
         android:importantForAccessibility="no" />
 
     <!-- Ambient glow in the colour of the focused dock app. -->
@@ -28,7 +30,8 @@
         android:alpha="0"
         android:textColor="#FFFFFFFF"
         android:textSize="48sp"
-        android:fontFamily="@font/outfit_light"
+        android:fontFamily="@font/outfit"
+        android:fontVariationSettings="'wght' 300"
         android:letterSpacing="-0.02"
         android:includeFontPadding="false"
         android:singleLine="true" />
@@ -39,16 +42,11 @@
         android:orientation="vertical"
         android:paddingStart="56dp"
         android:paddingEnd="56dp"
-        android:paddingTop="26dp"
-        android:clipChildren="false"
-        android:clipToPadding="false">
+        android:paddingTop="26dp">
 
-        <!-- No clipping down to the pills: with advanced effects a focused pill scales up past its row. -->
         <RelativeLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:clipChildren="false"
-            android:clipToPadding="false">
+            android:layout_height="wrap_content">
 
             <LinearLayout
                 android:id="@+id/leftBlock"
@@ -72,7 +70,8 @@
                     android:layout_marginStart="4dp"
                     android:textColor="#8CFFFFFF"
                     android:textSize="12sp"
-                    android:fontFamily="@font/outfit_medium"
+                    android:fontFamily="@font/outfit"
+                    android:fontVariationSettings="'wght' 500"
                     android:letterSpacing="0.22"
                     android:textAllCaps="true" />
 
@@ -90,7 +89,8 @@
                         android:format24Hour="HH:mm"
                         android:textColor="#FFFFFFFF"
                         android:textSize="52sp"
-                        android:fontFamily="@font/outfit_light"
+                        android:fontFamily="@font/outfit"
+                        android:fontVariationSettings="'wght' 300"
                         android:letterSpacing="-0.04"
                         android:includeFontPadding="false" />
 
@@ -105,7 +105,8 @@
                         android:format24Hour=""
                         android:textColor="#B3FFFFFF"
                         android:textSize="15sp"
-                        android:fontFamily="@font/outfit_medium"
+                        android:fontFamily="@font/outfit"
+                        android:fontVariationSettings="'wght' 500"
                         android:letterSpacing="0.08"
                         android:textAllCaps="true" />
 
@@ -126,17 +127,20 @@
                         android:layout_marginBottom="9dp"
                         android:orientation="vertical">
 
-                        <!-- Shamsi date ("27 Mehr 1405"), shown when shamsi_date is on. -->
+
+                        <!-- Weather ("☀️ 22° · Barcelona"), shown once it has loaded. -->
                         <TextView
-                            android:id="@+id/shamsiDate"
+                            android:id="@+id/weather"
                             android:gravity="left"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:layout_marginBottom="4dp"
                             android:singleLine="true"
                             android:ellipsize="end"
                             android:textColor="#E6FFFFFF"
                             android:textSize="17sp"
-                            android:fontFamily="@font/outfit_regular"
+                            android:fontFamily="@font/outfit"
+                            android:fontVariationSettings="'wght' 400"
                             android:letterSpacing="0.02"
                             android:includeFontPadding="false"
                             android:visibility="gone" />
@@ -146,41 +150,19 @@
                             android:gravity="left"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:singleLine="@bool/date_single_line"
-                            android:maxLines="2"
-                            android:lineSpacingExtra="6dp"
+                            android:singleLine="true"
                             android:ellipsize="end"
-                            android:format12Hour="@string/date_format_home"
-                            android:format24Hour="@string/date_format_home"
+                            android:format12Hour="@string/date_format"
+                            android:format24Hour="@string/date_format"
                             android:textColor="#A6FFFFFF"
                             android:textSize="14sp"
-                            android:fontFamily="@font/outfit_regular"
+                            android:fontFamily="@font/outfit"
+                            android:fontVariationSettings="'wght' 400"
                             android:letterSpacing="0.14"
                             android:textAllCaps="true" />
                     </LinearLayout>
                 </LinearLayout>
-
             </LinearLayout>
-
-            <!-- Shown only when show_stats is on. Outside leftBlock, so the top buttons stay level with the clock
-                 row; gone, it takes no space. -->
-            <TextView
-                android:id="@+id/stats"
-                android:layout_width="0dp"
-                android:layout_below="@id/leftBlock"
-                android:layout_alignStart="@id/leftBlock"
-                android:layout_alignEnd="@id/leftBlock"
-                android:gravity="left"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:singleLine="true"
-                android:ellipsize="end"
-                android:textColor="#D9FFFFFF"
-                android:textSize="14sp"
-                android:fontFamily="@font/outfit_medium"
-                android:letterSpacing="0.04"
-                android:focusable="false"
-                android:visibility="gone" />
 
             <LinearLayout
                 android:id="@+id/topButtons"
@@ -189,17 +171,9 @@
                 android:layout_alignParentEnd="true"
                 android:layout_alignBottom="@id/leftBlock"
                 android:layout_marginBottom="6dp"
-                android:clipChildren="false"
-                android:clipToPadding="false"
                 android:orientation="horizontal">
 
-                <TextView
-                    android:id="@+id/btnInputs"
-                    style="@style/TopButton"
-                    android:text="@string/inputs"
-                    android:drawableStart="@drawable/ic_input"
-                    android:nextFocusDown="@+id/grid" />
-
+                <!-- Wi-Fi keeps its label (the network name); Inputs and Settings are round icon buttons. -->
                 <TextView
                     android:id="@+id/btnWifi"
                     style="@style/TopButton"
@@ -211,18 +185,58 @@
                     android:nextFocusDown="@+id/grid" />
 
                 <TextView
-                    android:id="@+id/btnReorder"
-                    style="@style/TopButtonIcon"
-                    android:contentDescription="@string/reorder"
-                    android:drawableStart="@drawable/ic_swap_vert"
+                    android:id="@+id/btnInputs"
+                    style="@style/TopIconButton"
+                    android:contentDescription="@string/inputs"
+                    android:drawableStart="@drawable/ic_input"
                     android:nextFocusDown="@+id/grid" />
 
                 <TextView
                     android:id="@+id/btnSettings"
-                    style="@style/TopButton"
-                    android:text="@string/settings"
+                    style="@style/TopIconButton"
+                    android:contentDescription="@string/settings"
                     android:drawableStart="@drawable/ic_settings"
                     android:nextFocusDown="@+id/grid" />
+            </LinearLayout>
+
+            <!-- Where today's photo was taken, and who took it, under the buttons. -->
+            <LinearLayout
+                android:id="@+id/photoCaption"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/topButtons"
+                android:layout_alignParentEnd="true"
+                android:layout_marginTop="14dp"
+                android:layout_marginEnd="6dp"
+                android:gravity="right"
+                android:orientation="vertical"
+                android:alpha="0">
+
+                <TextView
+                    android:id="@+id/photoTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:maxWidth="420dp"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:gravity="right"
+                    android:textColor="#E6FFFFFF"
+                    android:textSize="14sp"
+                    android:fontFamily="@font/outfit"
+                    android:fontVariationSettings="'wght' 500" />
+
+                <TextView
+                    android:id="@+id/photoCredit"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:maxWidth="420dp"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:gravity="right"
+                    android:textColor="#80FFFFFF"
+                    android:textSize="10sp"
+                    android:fontFamily="@font/outfit" />
             </LinearLayout>
         </RelativeLayout>
 
@@ -254,4 +268,23 @@
         android:layout_height="10dp"
         android:alpha="0"
         android:importantForAccessibility="no" />
+
+    <!-- A small non-modal move hint: the launcher remains visible and the tile moves underneath it. -->
+    <TextView
+        android:id="@+id/reorderHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="18dp"
+        android:background="@drawable/glass_panel"
+        android:paddingStart="20dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="10dp"
+        android:text="@string/reorder_hint"
+        android:textColor="#E6FFFFFF"
+        android:textSize="13sp"
+        android:fontFamily="@font/outfit"
+        android:letterSpacing="0.03"
+        android:visibility="gone" />
 </FrameLayout>

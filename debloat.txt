@@ -1,0 +1,58 @@
+# Xiaomi Mi TV 4A (MiTV-MOOQ1, codename tarzan), Android TV 10, MediaTek MT9632, 1.8 GB RAM, 1080p.
+# Firmware QTG3.200305.006.xxxx. Everything here is DISABLED for user 0, nothing is uninstalled.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh debloat.txt com.google.android.tvlauncher
+#
+# Gotcha: `pm disable-user` reaches /data/system/users/0/package-restrictions.xml about 10 s later.
+# Reboot straight after disabling and the TV comes back with the packages enabled again. Wait first.
+#
+# Kept on purpose (checked with dumpsys package):
+#   com.xiaomi.android.tvsetup.partnercustomizer  Bluetooth remote pairing (BleRcActivity) and the GlobalKey
+#                                                 handler for the remote's Input button
+#   com.mediatek.wwtv.tvcenter                    Live TV, and also the HDMI/AV window: can't be disabled
+#   com.mediatek.tvinput, com.mediatek.hotkey.dispatcher, mitv.service, com.xiaomi.mitv.res
+#   com.google.android.katniss                    voice search on the remote's mic button
+#   com.google.android.apps.mediashell            Chromecast built-in
+#   hbbtv_content_shell                           a vendor daemon, not a package; needs root
+#
+# Input button: the remote sends KEYCODE_TV_INPUT (178), and partnercustomizer opens the stock
+# tvlauncher's InputsPanelActivity for it. With tvlauncher off that panel is gone, so the launcher's
+# InputKeyService (an accessibility service) catches the key and shows its own inputs sidebar.
+
+# ---- Xiaomi and Google telemetry ----
+com.miui.tv.analytics
+com.xiaomi.statistic
+com.google.android.feedback
+com.google.android.tv.bugreportsender
+
+# ---- PatchWall, Mi content rows and promos ----
+com.mitv.tvhome.atv
+com.mitv.tvhome.michannel
+com.mitv.tvhome.mitvplus
+com.xm.webcontent
+com.xiaomi.floatingframe
+android.autoinstalls.config.xiaomi.amelie
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.recommendations
+
+# ---- Xiaomi background services ----
+com.xiaomi.mitv.tvmanager
+com.mitv.milinkservice          # Mi cast; Chromecast keeps working
+com.xiaomi.mitv.smartshare
+com.xiaomi.mitv.updateservice   # re-enable to look for firmware updates
+com.xiaomi.amazon.alexa
+
+# ---- Preloaded apps and vendor screens ----
+com.xiaomi.mimusic2
+com.google.android.videos
+com.google.android.play.games
+fusion.android.tv.demo
+com.xiaomo.tv.milegal
+com.mstar.android.tv.disclaimercustomization
+
+# ---- Home claimants: disabled only AFTER this launcher (com.pavelpulso.cleanxiaomitv4a) is installed and running ----
+# factorytest also answers HOME (priority 0, same as this launcher). tvlauncher answers at priority 2,
+# so Android picks it over any preferred Home while it is enabled.
+com.duokan.factorytest
+com.google.android.tvlauncher
